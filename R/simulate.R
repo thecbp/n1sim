@@ -1,25 +1,53 @@
-#' Title
+#' Simulate data from an N-of-1 trial with washout
 #'
-#' @param n_trts 
-#' @param n_blocks 
-#' @param period_length 
-#' @param washout_length 
-#' @param sampling_timestep 
-#' @param sd_b 
-#' @param sd_p 
-#' @param sd_o 
-#' @param Ejs 
-#' @param gammas 
-#' @param taus 
-#' @param eta 
-#' @param custom.Bt 
-#' @param Xj_inits 
-#' @param Z_init 
+#' This function simulates data from an N-of-1 trial, which is a single-subject 
+#' clinical trial in which the subject serves as their own control. The function
+#'  generates a dataset that includes time, period, treatment, baseline, 
+#'  treatment effects, simulated outcome without error, and simulated outcome 
+#'  with error.
 #'
-#' @return
+#' @param n_trts The number of treatments being tested.
+#' @param n_blocks The number of blocks, where each block consists of a sequence of treatments.
+#' @param period_length The length of each treatment period.
+#' @param washout_length The length of the washout period between treatments, during which no treatment is administered.
+#' @param sampling_timestep The time interval at which observations are sampled.
+#' @param sd_b Standard deviation of the baseline process.
+#' @param sd_p Standard deviation of the process noise.
+#' @param sd_o Standard deviation of the observation noise.
+#' @param Ejs A vector of treatment effect sizes for each treatment (Ej).
+#' @param gammas A vector of decay constants for the decay of treatment effects when the treatment is not being applied (gamma).
+#' @param taus A vector of decay constants for the decay of treatment effects when the treatment is being applied (tau).
+#' @param eta Time constant for the decay of the effect of the total treatment on the outcome (Zt).
+#' @param custom.Bt Custom baseline function.
+#' @param Xj_inits Custom initial values for treatment effect functions.
+#' @param Z_init Custom initial value for the outcome process (Zt).
+#'
+#' @return a list with three main components: "data", "functions", and "params"
+#' - \code{data}: A tibble (data frame) containing the simulated data for the N-of-1 trial with columns:
+#'    - code{time}: Observation time points.
+#'    - code{period}: Period number corresponding to each time point.
+#'    - code{treatment}: Treatment administered at each time point.
+#'    - code{Bt}: Baseline values at each time point.
+#'    - code{sum_Xjt}: Total treatment effect at each time point.
+#'    - code{Zt}: Simulated outcome without error at each time point.
+#'    - code{Yt}: Simulated outcome with error at each time point.
+#'    - code{Tj}: Binary indicators for each treatment at each time point (one column per treatment).
+#'    - code{Xj}: Treatment effect for each treatment at each time point (one column per treatment).
+#' - \code{functions} A list of functions used during the simulation:
+#'    - \code{Bt}: Baseline function
+#'    - \code{Tt}: Function mapping time points to treatments.
+#'    - \code{Xjt}: List of treatment effect functions for each treatment.
+#'    - \code{Zt}: Simulated outcome function without error.
+#'  -\code{params}: A list of parameter settings:
+#'    - \code{trial}: List of trial parameters, including number of treatments (n_trts), number of blocks (n_blocks), period length (period_length), and washout length (washout_length).
+#'    - \code{process}: List of process parameters, such as time steps (timesteps), sampling time step (sampling_timestep), and standard deviations for baseline (sd_b), process noise (sd_p), and observation noise (sd_o).
+#'    - \code{treatment}: List of treatment effect parameters, including treatment effect sizes (Ejs), decay constants for treatment effects when treatment is not being applied (gammas), decay constants for treatment effects when treatment is being applied (taus), and the time constant for the decay of the effect of the total treatment on the outcome (eta).
+#'
+#' @importFrom magrittr %>%
+#'
 #' @export simulate
-#'
-#' @examples
+
+
 simulate = function(n_trts, n_blocks, period_length, washout_length,
                     sampling_timestep, sd_b, sd_p, sd_o,
                     Ejs, gammas, taus, eta, 
@@ -27,7 +55,12 @@ simulate = function(n_trts, n_blocks, period_length, washout_length,
   
   # TO-DO:
   # incorporate an interaction effects?
-  # 
+  
+  # Preventing checks to these variables in documentation
+  if (FALSE) {
+    . <- NULL
+    time <- NULL
+  }
   
   # Establish timescales over simulated trial
   duration = n_blocks * n_trts * (period_length + washout_length) - washout_length
@@ -45,7 +78,7 @@ simulate = function(n_trts, n_blocks, period_length, washout_length,
     n_periods = (n_blocks * (2 * n_trts)) - 1
     order = combinat::permn(1:n_trts) %>% 
       sample(size = n_blocks, replace = T) %>% unlist() %>% 
-      incorporate_washout()
+      incorporate_washout(., n_trts)
     switches = find_treatment_switches(n_blocks * n_trts, period_length, washout_length)
   }
   
@@ -53,7 +86,7 @@ simulate = function(n_trts, n_blocks, period_length, washout_length,
   Bt = simulate_baseline_function(timesteps, sd_b, sampling_timestep)
   
   # Treatment number by timestep
-  Tt = approxfun(switches, c(order, order[length(order)]), method = 'constant')
+  Tt = stats::approxfun(switches, c(order, order[length(order)]), method = 'constant')
   
   # Construct the effect functions for each treatment
   Xjt = lapply(1:n_trts, function(j) { 
@@ -64,10 +97,10 @@ simulate = function(n_trts, n_blocks, period_length, washout_length,
   # Get the total treatment effect across time
   sum_Xj = lapply(Xjt, function(f) { f(timesteps) }) %>% Reduce("+", .)
   
-  Zt = simulate_outcome(timesteps, Bt, sum_Xj, Z_init = 0, eta, sampling_timestep)
-  Yt = Zt(timesteps) + rnorm(length(timesteps), 0, sd_o)
+  Zt = simulate_outcome(timesteps, Bt, sum_Xj, Z_init = 0, eta, sampling_timestep, sd_p)
+  Yt = Zt(timesteps) + stats::rnorm(length(timesteps), 0, sd_o)
   
-  data = tibble(
+  data = tibble::tibble(
     time = timesteps,
     period = match_period_to_timesteps(order, switches),
     treatment = Tt(time),
@@ -110,7 +143,7 @@ simulate = function(n_trts, n_blocks, period_length, washout_length,
 
 # Incorporate washout into the treatment order
 # Convention: washout period will be indicated by the number n_trts+1
-incorporate_washout = function(trt_order) {
+incorporate_washout = function(trt_order, n_trts) {
   order = c()
   for (i in 1:length(trt_order)) {
     if (i != length(trt_order)) {
@@ -137,9 +170,9 @@ find_treatment_switches = function(n_periods, period_length, washout_length) {
 
 simulate_baseline_function = function(time_vec, sd_b, dt) {
   # discrete-time Brownian motion
-  wn = rnorm(length(time_vec) - 1, mean = 0, sd = sd_b * sqrt(dt))
+  wn = stats::rnorm(length(time_vec) - 1, mean = 0, sd = sd_b * sqrt(dt))
   baseline = c(time_vec[1], cumsum(wn))
-  approxfun(time_vec, baseline, method = 'linear')
+  stats::approxfun(time_vec, baseline, method = 'linear')
 }
 
 simulate_treatment_function = function(n_trts, n_blocks, trt_changes) {
@@ -150,7 +183,7 @@ simulate_treatment_function = function(n_trts, n_blocks, trt_changes) {
   
   list(
     block_vec = block_vec,
-    Tt = approxfun(trt_changes, block_vec, method = 'constant')
+    Tt = stats::approxfun(trt_changes, block_vec, method = 'constant')
   )
 }
 
@@ -227,10 +260,10 @@ simulate_effect_function = function(j, order, Tjt, switches, Xj_init = 0, Ej, ta
   
 }
 
-simulate_outcome = function(timesteps, Bt, sum_Xj, Z_init = 0, eta, sampling_timestep) {
+simulate_outcome = function(timesteps, Bt, sum_Xj, Z_init = 0, eta, sampling_timestep, sd_p) {
   
   # Draw process noise for simulation steps
-  Z_noise = rnorm(length(timesteps)-1, sd = sd_p * sqrt(sampling_timestep))
+  Z_noise = stats::rnorm(length(timesteps)-1, sd = sd_p * sqrt(sampling_timestep))
   
   B = Bt(timesteps)
   Zt = numeric(length(timesteps))
@@ -241,5 +274,5 @@ simulate_outcome = function(timesteps, Bt, sum_Xj, Z_init = 0, eta, sampling_tim
                                 eta, sampling_timestep) + Z_noise[i]
   }
   
-  approxfun(timesteps, Zt, method = 'linear')
+  stats::approxfun(timesteps, Zt, method = 'linear')
 }
