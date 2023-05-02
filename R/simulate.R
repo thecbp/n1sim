@@ -18,6 +18,7 @@
 #' @param gammas A vector of decay constants for the decay of treatment effects when the treatment is not being applied (gamma).
 #' @param taus A vector of decay constants for the decay of treatment effects when the treatment is being applied (tau).
 #' @param eta Time constant for the decay of the effect of the total treatment on the outcome (Zt).
+#' @param phi AR constant for the autocorrelation of the underyling outcome process
 #' @param custom.Bt Custom baseline function.
 #' @param Xj_inits Custom initial values for treatment effect functions.
 #' @param Z_init Custom initial value for the outcome process (Zt).
@@ -50,7 +51,7 @@
 
 simulate = function(n_trts, n_blocks, period_length, washout_length,
                     sampling_timestep, sd_b, sd_p, sd_o,
-                    Ejs, gammas, taus, eta, 
+                    Ejs, gammas, taus, eta, phi,
                     custom.Bt = NULL, Xj_inits = NULL, Z_init = NULL) {
   
   # TO-DO:
@@ -83,7 +84,7 @@ simulate = function(n_trts, n_blocks, period_length, washout_length,
   }
   
   # Construct necessary functions for simulations
-  Bt = simulate_baseline_function(timesteps, sd_b, sampling_timestep)
+  Bt = simulate_baseline_function(timesteps, sd_b, sampling_timestep, phi)
   
   # Treatment number by timestep
   Tt = stats::approxfun(switches, c(order, order[length(order)]), method = 'constant')
@@ -168,10 +169,20 @@ find_treatment_switches = function(n_periods, period_length, washout_length) {
   switches = switches[-length(switches)] # removing last addition of washout length
 }
 
-simulate_baseline_function = function(time_vec, sd_b, dt) {
-  # discrete-time Brownian motion
-  wn = stats::rnorm(length(time_vec) - 1, mean = 0, sd = sd_b * sqrt(dt))
-  baseline = c(time_vec[1], cumsum(wn))
+simulate_baseline_function = function(time_vec, sd_b, dt, phi) {
+  
+  # The original Percha simulation incorporates drift into the baseline function
+  # but I will replace this with an AR1 process
+  
+  
+  # Generate outcome based on if we need serial correlation or not
+  if (phi == 0) {
+    proc = stats::rnorm(length(time_vec) - 1, 0, sd_b * sqrt(dt))
+  } else {
+    proc = stats::arima.sim(model = list(ar = phi), sd = sd_b * sqrt(dt), n = length(time_vec) - 1)
+  }
+  
+  baseline = c(time_vec[1], proc)
   stats::approxfun(time_vec, baseline, method = 'linear')
 }
 

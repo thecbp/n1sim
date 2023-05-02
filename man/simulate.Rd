@@ -17,6 +17,7 @@ simulate(
   gammas,
   taus,
   eta,
+  phi,
   custom.Bt = NULL,
   Xj_inits = NULL,
   Z_init = NULL
@@ -46,6 +47,8 @@ simulate(
 \item{taus}{A vector of decay constants for the decay of treatment effects when the treatment is being applied (tau).}
 
 \item{eta}{Time constant for the decay of the effect of the total treatment on the outcome (Zt).}
+
+\item{phi}{AR constant for the autocorrelation of the underyling outcome process}
 
 \item{custom.Bt}{Custom baseline function.}
 
